@@ -1,70 +1,44 @@
-version: "3"
-# The parser will ignore extension fields prefixed with x-
-x-deploy: &deploy-dev
-  deploy:
-    resources:
-      limits:
-        cpus: "1"
-        memory: 512M
-      reservations:
-        memory: 256M
-x-env_file: &env_file
-  env_file:
-    - .env
-x-restart: &restart
-  restart: always #no, on-failure , always(default), unless-stopped 
+include:
+  - proxy.yaml
 
 services:
-  mysql:
-    image: mariadb:10.6.4-focal
-    #"mysql_native_password" only for wordpress, usually don't need!
-    #command: "--default-authentication-plugin=mysql_native_password"  # <--- При выполнени домашнего задания не использовать!!
-    networks: ["wordpress"]
-    <<: [*deploy-dev, *env_file, *restart]
-    environment:
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
-      - MYSQL_DATABASE=wordpress
-      - MYSQL_USER=wordpress
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - MYSQL_ROOT_HOST="%" # <--- Это вам обязательно понадобится при выполнении ДЗ!
-
-  wordpress:
-    depends_on: ["mysql"]
-    image: wordpress:php8.2-apache
-    volumes:
-      - wp_data:/var/www/html
-    networks: ["wordpress"]
-    <<: [*deploy-dev, *env_file, *restart]
-    environment:
-      - WORDPRESS_DB_NAME=wordpress
-      - WORDPRESS_DB_USER=wordpress
-      - WORDPRESS_DB_PASSWORD=${MYSQL_PASSWORD}
-      - WORDPRESS_DB_HOST=mysql
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "curl -f http://127.0.0.1/wp-admin/install.php/ | grep 'Продолжить' || exit 1",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 2
-
-  nginx:
+  web:
     build:
       context: .
-      dockerfile: nginx.dockerfile
-    depends_on: ["mysql"]
-    ports: ["80:80"]
-    networks: ["wordpress"]
+      dockerfile: Dockerfile.python  
+    networks:
+      backend:
+        ipv4_address: 172.20.0.5
+    restart: always
+    env_file:
+      - .env
+    environment:
 
-
-
-volumes:
-  db_data: {}
-  wp_data: {}
+      - DB_HOST=172.20.0.10
+      - DB_USER=${MYSQL_USER}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - DB_NAME=${MYSQL_DATABASE}   
+    depends_on:
+      - db
+            
+  db:
+    image: mysql:8
+    networks:
+      backend:
+        ipv4_address: 172.20.0.10
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_HOST="%"  
 networks:
-  wordpress:
-    name: wordpress
-    external: true 
-
+  backend:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
